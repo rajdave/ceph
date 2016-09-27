@@ -128,6 +128,7 @@
 #include "osd/OpRequest.h"
 
 #include "auth/AuthAuthorizeHandler.h"
+#include "auth/RotatingKeyRing.h"
 #include "common/errno.h"
 
 #include "objclass/objclass.h"
@@ -6014,7 +6015,7 @@ bool OSD::ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer, bool for
       return false;
   }
 
-  *authorizer = monc->auth->build_authorizer(dest_type);
+  *authorizer = monc->build_authorizer(dest_type);
   return *authorizer != NULL;
 }
 
