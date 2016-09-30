@@ -2811,9 +2811,9 @@ bool MDSMonitor::maybe_promote_standby(std::shared_ptr<Filesystem> fs)
         // The mds_info_t may or may not tell us exactly which filesystem
         // the standby_for_rank refers to: lookup via legacy_client_fscid
         mds_role_t target_role = {
+          info.standby_for_rank,
           info.standby_for_fscid == FS_CLUSTER_ID_NONE ?
-            pending_fsmap.legacy_client_fscid : info.standby_for_fscid,
-          info.standby_for_rank};
+	  pending_fsmap.legacy_client_fscid : info.standby_for_fscid};
 
         // If we managed to resolve a full target role
         if (target_role.fscid != FS_CLUSTER_ID_NONE) {
