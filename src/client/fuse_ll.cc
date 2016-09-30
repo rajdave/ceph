@@ -522,9 +522,9 @@ static void fuse_ll_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
     fuse_reply_entry(req, &fe);
   } else {
     fuse_reply_err(req, -r);
+    cfuse->iput(in);
   }
 
-  cfuse->iput(in); // iputs required
   cfuse->iput(nin);
 }
 
