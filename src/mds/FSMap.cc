@@ -19,6 +19,8 @@
 using std::stringstream;
 
 
+#define dout_subsys ceph_subsys_mon
+
 void Filesystem::dump(Formatter *f) const
 {
   f->open_object_section("mdsmap");
@@ -519,27 +521,39 @@ void Filesystem::print(std::ostream &out) const
   mds_map.print(out);
 }
 
-mds_gid_t FSMap::find_standby_for(mds_role_t role, const std::string& name) const
+mds_gid_t FSMap::find_standby_for(mds_role_t role, const std::string& name,
+				  CephContext *cct) const
 {
+  ldout(cct, 5) << __func__ << "role=" << role << ", name=" << name << dendl;
   mds_gid_t result = MDS_GID_NONE;
 
   // First see if we have a STANDBY_REPLAY
+  ldout(cct, 20) << "Searching fs daemons for standby-replay" << dendl;
   auto fs = get_filesystem(role.fscid);
   for (const auto &i : fs->mds_map.mds_info) {
     const auto &info = i.second;
+    ldout(cct, 20) << "checking against ";
+    info.print_summary(*_dout);
+    *_dout << dendl;
     if (info.rank == role.rank && info.state == MDSMap::STATE_STANDBY_REPLAY) {
       return info.global_id;
     }
   }
 
   // See if there are any STANDBY daemons available
+  ldout(cct, 20) << "Searching all standby_daemons" << dendl;
   for (const auto &i : standby_daemons) {
     const auto &gid = i.first;
     const auto &info = i.second;
     assert(info.state == MDSMap::STATE_STANDBY);
     assert(info.rank == MDS_RANK_NONE);
 
+    ldout(cct, 20) << "Checking gid " << gid << " with info ";
+    info.print_summary(*_dout);
+    *_dout << dendl;
+
     if (info.laggy()) {
+      ldout(cct, 20) << "skipping laggy" << dendl;
       continue;
     }
 
@@ -554,6 +568,7 @@ mds_gid_t FSMap::find_standby_for(mds_role_t role, const std::string& name) cons
         // It's not a named standby for anyone, use it if we don't find
         // a named standby for me later, unless it targets another FSCID.
         result = gid;
+	ldout(cct, 20) << "assigning this one if we don't get a better match" << dendl;
       }
   }
 
@@ -561,36 +576,50 @@ mds_gid_t FSMap::find_standby_for(mds_role_t role, const std::string& name) cons
 }
 
 mds_gid_t FSMap::find_unused(fs_cluster_id_t fscid,
-			     bool force_standby_active) const {
+			     bool force_standby_active, CephContext *cct) const {
+  ldout(cct, 5) << __func__ << "fscid=" << fscid << ", force_standby_active="
+		<< force_standby_active << dendl;
   for (const auto &i : standby_daemons) {
     const auto &gid = i.first;
     const auto &info = i.second;
     assert(info.state == MDSMap::STATE_STANDBY);
+    ldout(cct, 20) << "Checking gid " << gid << " with info ";
+    info.print_summary(*_dout);
+    *_dout << dendl;
 
-    if (info.laggy() || info.rank >= 0)
+    if (info.laggy() || info.rank >= 0) {
+      ldout(cct, 20) << "Skipping due to laggy or info.rank>=0" << dendl;
       continue;
+    }
 
     if (info.standby_for_fscid != FS_CLUSTER_ID_NONE &&
-        info.standby_for_fscid != fscid)
+        info.standby_for_fscid != fscid) {
+      ldout(cct, 20) << "Skipping due standby_for_fscid" << dendl;
       continue;
+    }
 
     // To be considered 'unused' a daemon must either not
     // be selected for standby-replay or the force_standby_active
     // setting must be enabled to use replay daemons anyway.
     if (!info.standby_replay || force_standby_active) {
+      ldout(cct, 5) << "Choosing this one!" << dendl;
       return gid;
-    }
+    } else ldout(cct, 20) << "Skipping due to standby_replay being set without force_standby_replay"
+			  << dendl;
   }
+  ldout(cct, 5) << "Giving up" << dendl;
   return MDS_GID_NONE;
 }
 
 mds_gid_t FSMap::find_replacement_for(mds_role_t role, const std::string& name,
-                               bool force_standby_active) const {
-  const mds_gid_t standby = find_standby_for(role, name);
+				      bool force_standby_active, CephContext *cct) const {
+  ldout(cct, 5) << __func__ << "role: " << role << ", name: " << name
+		<< ", force_standby_active=" << force_standby_active << dendl;
+  const mds_gid_t standby = find_standby_for(role, name, cct);
   if (standby)
     return standby;
   else
-    return find_unused(role.fscid, force_standby_active);
+    return find_unused(role.fscid, force_standby_active, cct);
 }
 
 void FSMap::sanity() const

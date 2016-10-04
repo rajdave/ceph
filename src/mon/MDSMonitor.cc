@@ -2658,6 +2658,7 @@ int MDSMonitor::print_nodes(Formatter *f)
  */
 bool MDSMonitor::maybe_expand_cluster(std::shared_ptr<Filesystem> fs)
 {
+  dout(1) << __func__ << fs << dendl;
   bool do_propose = false;
 
   if (fs->mds_map.test_flag(CEPH_MDSMAP_DOWN)) {
@@ -2672,7 +2673,7 @@ bool MDSMonitor::maybe_expand_cluster(std::shared_ptr<Filesystem> fs)
       mds++;
     }
     mds_gid_t newgid = pending_fsmap.find_replacement_for({fs->fscid, mds},
-                         name, g_conf->mon_force_standby_active);
+							  name, g_conf->mon_force_standby_active, mon->cct);
     if (newgid == MDS_GID_NONE) {
       break;
     }
@@ -2715,7 +2716,7 @@ void MDSMonitor::maybe_replace_gid(mds_gid_t gid,
       info.state != MDSMap::STATE_STANDBY_REPLAY &&
       !pending_fsmap.get_filesystem(fscid)->mds_map.test_flag(CEPH_MDSMAP_DOWN) &&
       (sgid = pending_fsmap.find_replacement_for({fscid, info.rank}, info.name,
-                g_conf->mon_force_standby_active)) != MDS_GID_NONE)
+						 g_conf->mon_force_standby_active, mon->cct)) != MDS_GID_NONE)
   {
     
     MDSMap::mds_info_t si = pending_fsmap.get_info_gid(sgid);
@@ -2777,7 +2778,7 @@ bool MDSMonitor::maybe_promote_standby(std::shared_ptr<Filesystem> fs)
     while (p != failed.end()) {
       mds_rank_t f = *p++;
       mds_gid_t sgid = pending_fsmap.find_replacement_for({fs->fscid, f}, {},
-          g_conf->mon_force_standby_active);
+							  g_conf->mon_force_standby_active, mon->cct);
       if (sgid) {
         const MDSMap::mds_info_t si = pending_fsmap.get_info_gid(sgid);
         dout(0) << " taking over failed mds." << f << " with " << sgid

@@ -414,12 +414,12 @@ public:
     return false;
   }
 
-  mds_gid_t find_standby_for(mds_role_t mds, const std::string& name) const;
+  mds_gid_t find_standby_for(mds_role_t mds, const std::string& name, CephContext *cct) const;
 
-  mds_gid_t find_unused(fs_cluster_id_t fscid, bool force_standby_active) const;
+  mds_gid_t find_unused(fs_cluster_id_t fscid, bool force_standby_active, CephContext *cct) const;
 
   mds_gid_t find_replacement_for(mds_role_t mds, const std::string& name,
-                                 bool force_standby_active) const;
+                                 bool force_standby_active, CephContext *cct) const;
 
   void get_health(list<pair<health_status_t,std::string> >& summary,
 		  list<pair<health_status_t,std::string> > *detail) const;
