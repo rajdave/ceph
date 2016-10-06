@@ -299,6 +299,8 @@ public:
       discard(offset, (uint64_t)-1 - offset);
     }
 
+    void split(size_t pos, BufferSpace &r);
+
     void dump(Formatter *f) const {
       std::lock_guard<std::recursive_mutex> l(cache->lock);
       f->open_array_section("buffers");
@@ -405,7 +407,7 @@ public:
   };
 
   /// in-memory blob metadata and associated cached buffers (if any)
-  struct Blob : public boost::intrusive::set_base_hook<> {
+  struct Blob {
     std::atomic_int nref = {0};     ///< reference count
     int id = -1;                    ///< id, for spanning blobs only, >= 0
     SharedBlobRef shared_blob;      ///< shared blob state (if any)
@@ -431,19 +433,13 @@ public:
 
     friend ostream& operator<<(ostream& out, const Blob &b);
 
-    // comparators for intrusive_set
-    friend bool operator<(const Blob &a, const Blob &b) {
-      return a.id < b.id;
-    }
-    friend bool operator>(const Blob &a, const Blob &b) {
-      return a.id > b.id;
-    }
-    friend bool operator==(const Blob &a, const Blob &b) {
-      return a.id == b.id;
-    }
-
     bool is_spanning() const {
       return id >= 0;
+    }
+
+    bool can_split() const {
+      // splitting a BufferSpace writing_map is too hard; don't try.
+      return shared_blob->bc.writing_map.empty() && get_blob().can_split();
     }
 
     void dup(Blob& o) {
@@ -483,6 +479,9 @@ public:
     bool put_ref(uint64_t offset, uint64_t length,  uint64_t min_alloc_size,
 		 vector<bluestore_pextent_t> *r);
 
+    /// split the blob
+    void split(size_t blob_offset, Blob *o);
+
     void get() {
       ++nref;
     }
@@ -511,10 +510,10 @@ public:
     }
   };
   typedef boost::intrusive_ptr<Blob> BlobRef;
-  typedef boost::intrusive::set<Blob> blob_map_t;
+  typedef std::map<int,BlobRef> blob_map_t;
 
   /// a logical extent, pointing to (some portion of) a blob
-  struct Extent : public boost::intrusive::set_base_hook<> {
+  struct Extent : public boost::intrusive::set_base_hook<boost::intrusive::optimize_size<true>> {
     uint32_t logical_offset = 0;      ///< logical offset
     uint32_t blob_offset = 0;         ///< blob offset
     uint32_t length = 0;              ///< length
@@ -559,6 +558,10 @@ public:
 	blob_offset;
     }
 
+    uint32_t end() const {
+      return logical_offset + length;
+    }
+
     bool blob_escapes_range(uint32_t o, uint32_t l) {
       uint32_t bstart = logical_offset - blob_offset;
       return (bstart < o ||
@@ -592,7 +595,6 @@ public:
 
     ExtentMap(Onode *o);
     ~ExtentMap() {
-      spanning_blob_map.clear_and_dispose([&](Blob *b) { b->put(); });
       extent_map.clear_and_dispose([&](Extent *e) { delete e; });
     }
 
@@ -603,10 +605,14 @@ public:
     void encode_spanning_blobs(bufferlist& bl);
     void decode_spanning_blobs(Collection *c, bufferlist::iterator& p);
 
-    BlobRef get_spanning_blob(int id);
+    BlobRef get_spanning_blob(int id) {
+      auto p = spanning_blob_map.find(id);
+      assert(p != spanning_blob_map.end());
+      return p->second;
+    }
 
     bool update(Onode *on, KeyValueDB::Transaction t, bool force);
-    void reshard(Onode *on);
+    void reshard(Onode *on, uint64_t min_alloc_size);
 
     /// initialize Shards from the onode
     void init_shards(Onode *on, bool loaded, bool dirty);
@@ -678,6 +684,8 @@ public:
 			uint64_t offset, uint64_t length, uint8_t blob_depth,
                         BlobRef b, extent_map_t *old_extents);
 
+    /// split a blob (and referring extents)
+    BlobRef split_blob(BlobRef lb, uint32_t blob_offset, uint32_t pos);
   };
 
   struct OnodeSpace;
